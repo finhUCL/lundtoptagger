@@ -1,0 +1,84 @@
+# Data and output paths
+# =====================
+data:
+  # path_to_trainfiles: "/data/ravinascos/LundNet/2024_graphs/graphs_NewDataset_LundNet_R22_No_ln_kT_Cut_LRJ_NewData_Primary"
+  path_to_trainfiles:
+    # QCD Graph Files (All 5)
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364703_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364704_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364705_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364706_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364707_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_Top_flat_pt_801661_cfg167_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_Top_flat_pt_801661_cfg1_part0_0.25percent_ln_kT_cut_None_with_pt"
+  
+  path_to_save: "/home/xzcqsfhu/lundtoptagger/Models/"
+  # model_name: "LundNet_R22_ExtraNode_No_ln_kT_Cut_LRJ_NewData_Primary"
+  model_name: "LundNet_R22_ExtraNode_ln_kT_Cut_{ln_kT_cut}_LRJ_NewData_Primary"
+  adv_model_name: "adversarial"
+  ln_kT_cut: null # null, -0.5, 0.0, 0.5, 1.0, 2.0, 2.8
+  # if {ln_kT_cut} is present in path_to_trainfiles, path_to_save or model_name, it will be replaced by the value of ln_kT_cut (by None if ln_kT_cut is null)
+  # so it is only used to select a dataset with a specific ln_kT cut already applied, the training script does not apply the ln_kT cut itself
+  # the value from this config file and can be overridden by the command-line argument --ln_kT_cut
+
+# Preprocessing
+# =============
+cut_pt_mass: True
+# If True, applies mass and pT cuts specified in the signal config file,
+# the path to which is specified in config_signal_path below.
+# This saves you from having to prepare graph files with the cuts already applied.
+# However, if you have already prepared graph files with the cuts applied,
+# then this will only waste time and should be set to False.
+config_signal_path: "./configs/config_signal.yaml"  # path to the config file with the signal configuration
+signal: top                                         # top or W; flag to choose one of the configurations from the signal_config_file
+
+flatten_pt: True
+# if applying cuts which were not used for the pT spectrum that was used for reweighting in Make_data.py,
+# then flatten_pt should be set to True, so that the pT spectrum is flattened again
+flatten_mass: False  # should only be used with a wide-mass sample, which has a significant number of jets across the entire mass range used for training
+num_iters: 4         # number of iterations for the iterative reweighting procedure
+# number of mass and pT bins for the iterative reweighting procedure
+# (the reweighting is done so that the total weight in each bin is the same)
+n_bins_pt:   100
+n_bins_mass: 50
+# bins are only used for 1D reweighting, so the number of bins does not matter for the 2D reweighting
+
+# Architecture and training
+# =========================
+architecture:
+  batch_size: 4500 #2600
+  test_size: 0.1
+  learning_rate: 0.0004
+  save_every_epoch: True
+
+  # classifier
+  n_epochs: 35
+  choose_model: LundNet # LundNet, LundNet_plus_GN2X, GATNet, GINNet, EdgeGinNet, PNANet
+  # if you want to use LundNet_plus_GN2X, make sure that the graphs have GN2X scores!
+
+  # adversarial
+  num_gaussians: 20
+  n_epochs_adv: 20
+
+  # combined
+  do_combined_training: False  # can be overridden by command line argument
+  lambda_parameter: 25
+  loss_parameter: 1
+  loss_weights: [1,1]
+  n_epochs_common: 200
+
+
+retrain:
+  flag: False
+  path_to_ckpt: "/sps/atlas/k/khandoga/TrainGNN/Models/LundNet_ufob_e012_0.12481.pt"
+
+
+# Computing resources
+# ===================
+
+# choose gpu to run on
+gpu: null # can be null or integer
+# if null, code will check if CUDA is available and use torch.device("cuda") if it is, otherwise torch.device("cpu")
+# Usually gpu 4 worked best, it had the most memory available (on UChicago?)
+
+num_workers: 4  # number of workers for the DataLoader, can be set to 0 if you want to use the main thread
