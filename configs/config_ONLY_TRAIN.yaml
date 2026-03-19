@@ -2,8 +2,17 @@
 # =====================
 data:
   # path_to_trainfiles: "/data/ravinascos/LundNet/2024_graphs/graphs_NewDataset_LundNet_R22_No_ln_kT_Cut_LRJ_NewData_Primary"
-  path_to_trainfiles: "/data/ravinascos/LundNet/2024_graphs/graphs_NewDataset_LundNet_R22_ExtraNode_ln_kT_Cut_{ln_kT_cut}_LRJ_NewData_Primary"  # can also be a list of paths
-  path_to_save: "/home/ravinascos/LundNet/Jad_git/lundtoptagger/Models/"
+  path_to_trainfiles:
+    # QCD Graph Files (All 5)
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364703_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364704_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364705_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364706_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_QCD_364707_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_Top_flat_pt_801661_cfg167_part0_0.25percent_ln_kT_cut_None_with_pt"
+    - "/share/data1/yzhu/gn3x/graph/data_part0_0.25percent/graphs_Top_flat_pt_801661_cfg1_part0_0.25percent_ln_kT_cut_None_with_pt"
+  
+  path_to_save: "/home/xzcqsfhu/lundtoptagger/Models/"
   # model_name: "LundNet_R22_ExtraNode_No_ln_kT_Cut_LRJ_NewData_Primary"
   model_name: "LundNet_R22_ExtraNode_ln_kT_Cut_{ln_kT_cut}_LRJ_NewData_Primary"
   adv_model_name: "adversarial"
@@ -73,3 +82,4 @@ gpu: null # can be null or integer
 # Usually gpu 4 worked best, it had the most memory available (on UChicago?)
 
 num_workers: 4  # number of workers for the DataLoader, can be set to 0 if you want to use the main thread
+

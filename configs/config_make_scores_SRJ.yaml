@@ -1,0 +1,32 @@
+# ============================================================
+# Data and output paths
+# ============================================================
+data:
+  paths_to_test_file_root: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_0_160GeV_3.2_4.5_eta/part0_2percent/data_dijet_ParT_batch*_ln_kT_cut_None.root"
+  paths_to_test_file_graphs: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/preprocessed_data/0_160_pt_3.2_4.5_eta_5%_train_2%_test/test/processed_graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt" # prepared this earlier dw
+  path_to_outdir: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/scores/QLundNet_scoring/0_160_pt_3.2_4.5_5%train_2%test"
+
+  output_suffix: "_score_multiModel"
+  sample: "ParT_2%_test_fwd_lowpt"
+  kT_cut: null
+
+
+# ============================================================
+# Model evaluation settings
+# ============================================================
+test:
+
+  models_to_run:
+
+    - tag: "LundNet_SRJ_eta3.2_4.5_pt0_160_50%_batch4500_lr0.0004_e18"        # Distinct Root branch names
+      arch: "LundNet"               # Model type
+      ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/0_160_pt_3.2_4.5_eta_50%_train_20%_test/LundNet_SRJ_eta3.2_4.5_pT0_160_e018_0.34049.pt"
+
+    - tag: "QLundNet_SRJ_eta45_pt0_160_5%_batch1024_lr0.0004_e3"
+      arch: "QLundNet"
+      ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/QLundNet/0_160_pt_3.2_4.5_eta_5%_train_2%_test/QLundNet_SRJ_eta3.2_4.5_pT0_160_e004_0.33544.pt"
+
+  # ROOT branch names：generated from TAG
+  scores_branch_name: "fjet_{tag}_score"
+
+  batch_size: 2048

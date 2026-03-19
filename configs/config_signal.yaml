@@ -19,7 +19,7 @@ top:
     # TODO: make sure to use histograms with matching mass cutor change the mass cut here
     801661: "./histos/topBSMP8.root" # TODO: fix this histogram, wrong mass and pT ranges
     426345: "./histos/mass_40-3500_pt_350-3100/topBSMP8_426345.root"
-  signal_jet_truth_labels: [1]
+  signal_jet_truth_labels: [1]    # truth labels for top jets
   dsids: [801661, 426345]         # for these DSIDs, keep only jets with truth label 1, and for other samples, keep the QCD jets (with truth label 10)
   pt_range: [350, 3100]           # jet pT selection in GeV, upper limit not really necessary, in testing jets with pt > 3k are not included
   mass_range: [40, .inf]          # jet mass selection in GeV, for no upper limit use .inf

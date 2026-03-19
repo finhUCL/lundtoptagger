@@ -2,6 +2,8 @@ import argparse
 import csv
 from datetime import datetime
 import os
+import json
+import glob
 
 import numpy as np
 import torch
@@ -17,10 +19,8 @@ from plotting.utils_plots_matplotlib import hist_with_errors
 
 print("Libraries loaded!")
 
-
 def main():
-
-    parser = argparse.ArgumentParser(description='Train with configurations')
+    parser = argparse.ArgumentParser(description='Train with configurations (Sharded Data Support)')
     add_arg = parser.add_argument
     add_arg('config', help="job configuration")
     add_arg('--ln_kT_cut', type=float, help="minimum value of kT kept for the training graphs")
@@ -34,6 +34,9 @@ def main():
 
     config_file = args.config
     config = load_yaml(config_file)
+    path_to_save = config['data']['path_to_save']
+    os.makedirs(path_to_save, exist_ok=True)
+    
     ln_kT_cut = args.ln_kT_cut if args.ln_kT_cut is not None else config['data']['ln_kT_cut']
     do_combined_training = (
         True if args.do_combined_training in ["true", "yes", "1"] else
@@ -41,221 +44,155 @@ def main():
         config['architecture']['do_combined_training']
     )
     
-    # load the dataset
-    path_to_file = config['data']['path_to_trainfiles']
-    dataset = []
-    if isinstance(path_to_file, str):
-        # path_to_file can be a list of file paths or a single path
-        # if it is a single path, convert it to a list
-        path_to_file = [path_to_file]
-    for file_path in path_to_file:
-        file_path = file_path.format(ln_kT_cut=ln_kT_cut)
-        print("Loading file", file_path)
-        dataset += torch.load(file_path, weights_only=False) # weights_only=False added so that it works with PyTorch 2.6; it used to be the default
-
-    for d in dataset:
-        if hasattr(d, "fjet_weight_pt_W"):
-            del d.fjet_weight_pt_W
-        if hasattr(d, "fjet_weight_pt_top"):
-            del d.fjet_weight_pt_top
-
-
-    # apply jet mass and pT cuts
-    if config['cut_pt_mass']:
-        config_signal = load_yaml(config['config_signal_path'])[config['signal']]
-        pt_range = config_signal['pt_range']
-        mass_range = config_signal['mass_range']
-        print("Filtering jets with pT in range", pt_range, "and mass in range", mass_range)
-        dataset = [jet_graph for jet_graph in dataset
-                   if  pt_range[0]   < jet_graph.pt   < pt_range[1]
-                   and mass_range[0] < jet_graph.mass < mass_range[1]]
-
-    # check the number of signal and background jets
-    labels = np.array([jet_graph.y for jet_graph in dataset])
-    num_signal = (labels==1).sum()
-    num_background = (labels==0).sum()
-    print("")
-    print("Signal count:", num_signal)
-    print("Background count:", num_background)
-
-    # optionally flatten the mass and pt distributions and save plots of the distributions
-    masses = np.array([jet_graph.mass for jet_graph in dataset])
-    pts = np.array([jet_graph.pt for jet_graph in dataset])
-
-    flatten_mass = config['flatten_mass']
-    flatten_pt = config['flatten_pt']
-    if flatten_mass and flatten_pt:
-        weights_bkg = assign_2d_flat_weights_kde(masses[labels==0], pts[labels==0], bw_method='scott')
-        weights_sig = assign_2d_flat_weights_kde(masses[labels==1], pts[labels==1], bw_method='scott')
-    elif flatten_mass or flatten_pt:
-        iterations  = config['num_iters']
-        arrays_to_flatten_bkg = []
-        arrays_to_flatten_sig = []
-        n_bins = []
-        if flatten_mass:
-            arrays_to_flatten_bkg.append(masses[labels==0])
-            arrays_to_flatten_sig.append(masses[labels==1])
-            n_bins.append(config['n_bins_mass'])
-        if flatten_pt:
-            arrays_to_flatten_bkg.append(pts[labels==0])
-            arrays_to_flatten_sig.append(pts[labels==1])
-            n_bins.append(config['n_bins_pt'])
-        weights_bkg = assign_flat_weights(*arrays_to_flatten_bkg, n_bins=n_bins, iterations=iterations)
-        weights_sig = assign_flat_weights(*arrays_to_flatten_sig, n_bins=n_bins, iterations=iterations)
+    # ---------------------------------------------------------
+    # 1. Load dataset (supports wildcard matching of multiple batches)
+    # ---------------------------------------------------------
+    path_to_file_raw = config['data']['path_to_trainfiles']
+    if isinstance(path_to_file_raw, str):
+        path_to_file_list = [path_to_file_raw]
     else:
-        weights_attr_name = 'fjet_weight_pt' if hasattr(dataset[0], 'fjet_weight_pt') else f'fjet_weight_pt_{config["signal"]}'
-        weights_bkg = np.array([jet_graph[weights_attr_name] for jet_graph in dataset if jet_graph.y == 0], dtype=np.float64)
-        weights_sig = np.array([jet_graph[weights_attr_name] for jet_graph in dataset if jet_graph.y == 1], dtype=np.float64)
+        path_to_file_list = path_to_file_raw
 
-    path_to_save = config['data']['path_to_save'].format(ln_kT_cut=ln_kT_cut)
-    os.makedirs(path_to_save, exist_ok=True)
-    print("\nResults will be saved to", path_to_save)
+    dataset = []
+    all_shards = []
 
-    for var_array, var_name, var_bins in zip([masses, pts], ['Mass', 'pT'], ['n_bins_mass', 'n_bins_pt']):
-        hist_args = dict(
-            bins = config[var_bins],
-            density = True,
-            fmt = "."
-        )
-        hist_with_errors(var_array[labels==0], label='Background', weights=weights_bkg, **hist_args, capsize=2)
-        hist_with_errors(var_array[labels==1], label='Signal',     weights=weights_sig, **hist_args)
-        plt.xlabel(f"LRJ {var_name} [GeV]")
-        plt.ylabel('density')
-        if var_name=="Mass" and not flatten_mass or var_name=="pT" and not flatten_pt:
-            plt.ylim(bottom=0)
-        plt.legend()
-        plt.savefig(os.path.join(path_to_save, f"{var_name}_distribution.png"))
-        plt.close()
+    # Parse all possible wildcard paths
+    for pattern in path_to_file_list:
+        formatted_pattern = pattern.format(ln_kT_cut=ln_kT_cut)
+        found_files = glob.glob(formatted_pattern)
+        if not found_files:
+            if os.path.exists(formatted_pattern):
+                all_shards.append(formatted_pattern)
+            else:
+                print(f"Warning: No files found for {formatted_pattern}")
+        else:
+            all_shards.extend(found_files)
+
+    all_shards = sorted(list(set(all_shards)))
+    print(f"Found {len(all_shards)} data shards to load.")
+
+    # Loop to load and merge shards
+    for file_path in all_shards:
+        print(f"Loading shard: {os.path.basename(file_path)}")
+        dataset += torch.load(file_path, weights_only=False)
     
-    for truth_label, label_name, weights_array in zip([0, 1], ['background', 'signal'], [weights_bkg, weights_sig]):
-        hist_arrays = [masses[labels==truth_label], pts[labels==truth_label]]
-        hist_args = dict(
-            bins=(config['n_bins_mass'], config['n_bins_pt']),
-            weights=weights_array,
-            density=True
-        )
-        bin_counts_2d_hist = np.histogram2d(*hist_arrays, **hist_args)[0]
-        min_bin_count = bin_counts_2d_hist[bin_counts_2d_hist > 0].min()
-        print(f"Minimum bin count for {label_name}:", min_bin_count)
+    print(f"Total dataset size loaded: {len(dataset)}")
 
-        plt.hist2d(*hist_arrays, **hist_args, cmin=min_bin_count)
-        plt.colorbar(label='density')
-        plt.xlabel('LRJ Mass [GeV]')
-        plt.ylabel('LRJ pT [GeV]')
-        plt.savefig(os.path.join(path_to_save, f"Mass_pT_distribution_{label_name}.png"))
-        plt.close()
+    # ---------------------------------------------------------
+    # 2. Global weight re-balancing (Rescale weights)
+    # ---------------------------------------------------------
+    dataset_sig = [g for g in dataset if g.y == 1]
+    dataset_bkg = [g for g in dataset if g.y == 0]
 
-    print("Mass and pT plots saved")
+    # Calculate total global weight
+    weights_sig_total = sum(g.weights for g in dataset_sig)
+    weights_bkg_total = sum(g.weights for g in dataset_bkg)
 
-    # rescale the weights so that the total weight of signal jets is equal to the total weight of background jets
-    weights_signal_total = weights_sig.sum()
-    weights_background_total = weights_bkg.sum()
-    print("")
-    print("Signal total weight:", weights_signal_total)
-    print("Background total weight:", weights_background_total)
-    scale_factor = weights_signal_total / weights_background_total
-    print("Scale factor:", scale_factor)
+    if weights_bkg_total == 0:
+        print("Error: Background total weight is 0. Check data.")
+        return
 
-    dataset_sig = [jet_graph for jet_graph in dataset if jet_graph.y == 1]
-    dataset_bkg = [jet_graph for jet_graph in dataset if jet_graph.y == 0]
+    scale_factor = weights_sig_total / weights_bkg_total
+    print(f"Scale factor (Sig/Bkg total weight ratio): {scale_factor:.4f}")
 
-    for jet_graph, weight in zip(dataset_sig, weights_sig):
-        jet_graph.weights = weight
-    for jet_graph, weight in zip(dataset_bkg, weights_bkg):
-        jet_graph.weights = weight*scale_factor
+    # Apply scaling factor only to background so their total weights match
+    for g in dataset_bkg:
+        g.weights *= scale_factor
 
-    ## define architecture
+    # ---------------------------------------------------------
+    # 3. Split into training and validation sets
+    # ---------------------------------------------------------
     batch_size = config['architecture']['batch_size']
     test_size = config['architecture']['test_size']
 
-    dataset= shuffle(dataset_sig+dataset_bkg, random_state=42)
-    train_ds, validation_ds = train_test_split(dataset, test_size = test_size, random_state = 144)
+    # Shuffle data
+    dataset = shuffle(dataset_sig + dataset_bkg, random_state=42)
+    train_ds, validation_ds = train_test_split(dataset, test_size=test_size, random_state=144)
+    
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=config['num_workers'])
     val_loader = DataLoader(validation_ds, batch_size=batch_size, shuffle=False, num_workers=config['num_workers'])
 
+    print(f"Train samples: {len(train_ds)}, Val samples: {len(validation_ds)}")
 
-    print ("train dataset size:", len(train_ds))
-    print ("validation dataset size:", len(validation_ds))
-
+    # Compute node degrees (needed for PNA and similar models)
     deg = torch.zeros(100, dtype=torch.long)
     for data in dataset:
         d = degree(data.edge_index[1], num_nodes=data.num_nodes, dtype=torch.long)
         deg += torch.bincount(d, minlength=deg.numel())
 
-
+    # ---------------------------------------------------------
+    # 4. Model Initialization
+    # ---------------------------------------------------------
     n_epochs = config['architecture']['n_epochs']
     learning_rate = config['architecture']['learning_rate']
     choose_model = config['architecture']['choose_model']
     save_every_epoch = config['architecture']['save_every_epoch']
 
-    if choose_model == "LundNet":
-        model = LundNet()
-    if choose_model == "GATNet":
-        model = GATNet()
-    if choose_model == "GINNet":
-        model = GINNet()
-    if choose_model == "EdgeGinNet":
-        model = EdgeGinNet()
-    if choose_model == "PNANet":
-        model = PNANet()
-    if choose_model == "LundNet_plus_GN2X":
-        model = LundNet_plus_GN2X()
+    # Model choose
+    if choose_model == "LundNet": model = LundNet()
+    elif choose_model == "GATNet": model = GATNet()
+    elif choose_model == "GINNet": model = GINNet()
+    elif choose_model == "EdgeGinNet": model = EdgeGinNet()
+    elif choose_model == "PNANet": model = PNANet()
+    elif choose_model == "LundNet_plus_GN2X": model = LundNet_plus_GN2X()
+    elif choose_model == "QLundNet": model = QLundNet()
+    else: raise ValueError(f"Unknown model: {choose_model}")
 
-    path_to_ckpt = config['retrain']['path_to_ckpt']
-
+    # Checkpoint-resume training logic
     if config['retrain']['flag']:
-        path = path_to_ckpt
-        model.load_state_dict(torch.load(path))
+        print(f"Loading checkpoint: {config['retrain']['path_to_ckpt']}")
+        model.load_state_dict(torch.load(config['retrain']['path_to_ckpt']))
 
+    # GPU settings
     if torch.cuda.is_available():
-        device_id = 'cuda' if config['gpu'] is None else 'cuda:'+str(config['gpu'])
+        device_id = 'cuda' if config['gpu'] is None else f'cuda:{config["gpu"]}'
     else:
         device_id = 'cpu'
     device = torch.device(device_id)
-    print(f'\nUsing device: {device}')
-
-    #model = torch.nn.DataParallel(model)
+    print(f'Using device: {device}')
     model.to(device)
     
+    # optimizer settings
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     optimizer_small = torch.optim.Adam(model.parameters(), lr=0.4*learning_rate)
     optimizer2 = torch.optim.Adam(model.parameters(), lr=4*learning_rate)
     optimizer3 = torch.optim.Adam(model.parameters(), lr=10*learning_rate)
 
+    # ---------------------------------------------------------
+    # 5. Adversarial-training setup (if enabled)
+    # ---------------------------------------------------------
     if do_combined_training:
         adv = Adversary_new(config['architecture']['lambda_parameter'], config['architecture']['num_gaussians'])
         adv.to(device)
         optimizer_adv = torch.optim.Adam(adv.parameters(), lr=5*learning_rate)
 
-    train_jds = []
-    val_jds = []
-
-    train_bgrej = []
-    val_bgrej = []
-
+    # ---------------------------------------------------------
+    # 6. Main training loop
+    # ---------------------------------------------------------
+    train_loss, val_loss = [], []
     model_name = config['data']['model_name'].format(ln_kT_cut=ln_kT_cut)
-    train_loss = []
-    val_loss = []
-    train_acc = []
-    val_acc = []
-
     timestamp = datetime.now().strftime("%d%m-%H%M")
     metrics_filename = os.path.join(path_to_save, f"losses_{model_name}_{timestamp}.txt")
 
+    print("\nStarting standard training...")
     for epoch in range(n_epochs):
-        train_loss.append(train_clas(train_loader, model, device, optimizer, optimizer2, optimizer3, epoch))
-        val_loss.append(my_test(val_loader, model, device))
+        t_loss = train_clas(train_loader, model, device, optimizer, optimizer2, optimizer3, epoch)
+        v_loss = my_test(val_loader, model, device)
+        
+        train_loss.append(t_loss)
+        val_loss.append(v_loss)
 
-        print('Epoch: {:03d}, Train Loss: {:.5f}, Val Loss: {:.5f}'.format(epoch, train_loss[epoch], val_loss[epoch]))
-        if save_every_epoch or epoch == n_epochs-1:
-            model_filename = os.path.join(path_to_save, f"{model_name}_e{epoch+1:03d}_{val_loss[epoch]:.5f}.pt")
+        print(f'Epoch: {epoch:03d}, Train Loss: {t_loss:.5f}, Val Loss: {v_loss:.5f}')
+        
+        if save_every_epoch or epoch == n_epochs - 1:
+            model_filename = os.path.join(path_to_save, f"{model_name}_e{epoch+1:03d}_{v_loss:.5f}.pt")
             torch.save(model.state_dict(), model_filename)
 
-    metrics = zip(train_loss, val_loss)
+    # save metrics
     with open(metrics_filename, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["Train_Loss", "Val_Loss"])
-        writer.writerows(metrics)
+        writer.writerows(zip(train_loss, val_loss))
 
     if do_combined_training:
         adv_model_name = config['data']['adv_model_name']

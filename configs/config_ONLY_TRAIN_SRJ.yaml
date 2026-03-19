@@ -1,0 +1,49 @@
+# ============================================================
+# Data and output paths
+# ============================================================
+data:
+  path_to_trainfiles: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/preprocessed_data/0_160_pt_3.2_4.5_eta_5%_train_2%_test/train/processed_graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt"
+  path_to_save: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/QLundNet/0_160_pt_3.2_4.5_eta_5%_train_2%_test"
+  model_name: "QLundNet_SRJ_eta3.2_4.5_pT0_160"
+  adv_model_name: "adversarial"
+  ln_kT_cut: null
+
+  # Used only for reading JSON (harmless to keep)
+  meanstd_json: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_0_160GeV_3.2_4.5_eta/part1_5percent/meanstd_part1.json"
+
+
+# ============================================================
+# Architecture and training
+# ============================================================
+architecture:
+  batch_size: 1024 #1024 lowest
+  test_size: 0.1
+  learning_rate: 0.0004 # not above 0.001
+  save_every_epoch: True
+
+  n_epochs: 15
+  choose_model: QLundNet
+
+  # adversarial settings
+  do_combined_training: False
+  num_gaussians: 20
+  n_epochs_adv: 20
+  lambda_parameter: 25
+  loss_parameter: 1
+  loss_weights: [1, 1]
+  n_epochs_common: 200
+
+
+# ============================================================
+# Retraining
+# ============================================================
+retrain:
+  flag: False
+  path_to_ckpt: ""
+
+
+# ============================================================
+# Computing resources
+# ============================================================
+gpu: null
+num_workers: 4

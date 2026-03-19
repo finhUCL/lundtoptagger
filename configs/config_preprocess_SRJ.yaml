@@ -1,0 +1,38 @@
+# ============================================================
+# Preprocess Config for SRJ (Standardize + Flatten)
+# ============================================================
+
+data:
+  train_graphs:
+    - "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_160_1300GeV_3.2_4.5_eta/part0_50percent/graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt"
+
+  test_graphs:
+    - "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_160_1300GeV_3.2_4.5_eta/part0_20percent/graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt"
+
+  out_dir: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/preprocessed_data/160_1300_pt_3.2_4.5_eta_50%_train_20%_test"
+
+  # mean/std JSON
+  meanstd_json: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_160_1300GeV_3.2_4.5_eta/part0_50percent/meanstd_part0.json"
+
+
+# ============================================================
+# Jet selection
+# ============================================================
+cut_pt_eta_mass: False
+config_signal_path: "./configs/config_signal_SRJ.yaml"
+signal: srj
+
+
+# ============================================================
+# Flattening options (train only)
+# ============================================================
+flatten_pt: True
+flatten_eta: True
+n_bins_pt: 100
+n_bins_eta: 50
+
+
+# ============================================================
+# Compute resources
+# ============================================================
+num_workers: 12

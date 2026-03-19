@@ -1,0 +1,34 @@
+# ============================================================
+# Data and output paths
+# ============================================================
+data:
+  paths_to_test_file_root: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_160_1300GeV_3.2_4.5_eta/part0_20percent/data_dijet_ParT_batch*_ln_kT_cut_None.root"
+  paths_to_test_file_graphs: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/preprocessed_data/160_1300_pt_3.2_4.5_eta_50%_train_20%_test/test/processed_graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt"
+
+  path_to_outdir: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/scores/Combined_scoring/combiner_160_1300_pt_3.2_4.5_50%train_20%test"
+
+  output_suffix: "_score_Combined"
+  sample: "ParT_LundNet_combined_20%_test_fwd_highpt"
+  kT_cut: null
+  tree_name: "FlatSubstructureJetTree"
+
+
+# ============================================================
+# Model evaluation settings
+# ============================================================
+test:
+  lundnet_model:
+    tag: "LundNet_SRJ_eta3.2_4.5_pt160_1300_50%_batch4500_lr0.0004_e4"
+    arch: "LundNet"
+    ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/160_1300_pt_3.2_4.5_eta_50%_train_20%_test/LundNet_SRJ_eta3.2_4.5_pT160_1300_e004_0.99253.pt"
+
+  combiner_model:
+    tag: "Combined_LundNet_ParT_eta3.2_4.5_pt160_1300_e100"
+    ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/COMBINED/combiner_160_1300_pt_3.2_4.5_eta_50%train_20%test_100epochs/Combiner_LundNet_ParT_eta3.2_4.5_pt160_1300_20260318_034841/Combiner_LundNet_ParT_eta3.2_4.5_pt160_1300_e100_0.42200.pt"
+
+  # parT score branch is fixed in script as: parT_score
+
+  # ROOT branch names are generated from tags
+  scores_branch_name: "fjet_{tag}_score"
+
+  batch_size: 2048

@@ -1,0 +1,37 @@
+# ================================================================
+# SRJ Signal Config (for make_data_SRJ)
+# ================================================================
+
+srj:
+  # --------------------------------------------------------------
+  # truth label selection (signal / background)
+  # --------------------------------------------------------------
+  signal_jet_truth_labels: [1, 2, 3, 4, 5]   # SRJ signal (light quarks + charm + bottom)
+  background_jet_truth_labels: [21]      # SRJ background (other things + gluons)
+
+  # DSID is no longer used to determine signal/background
+  # (SRJ files are already mixed). But you still need a placeholder
+  # field for make-data.
+  dsids: []        # Empty list, no DSID-based splitting
+  skip_dsids: []   # SRJ does not need to skip any DSIDs
+
+  # --------------------------------------------------------------
+  # SRJ jet kinematic cuts
+  # --------------------------------------------------------------
+  pt_range: [160, 1300]        # Or your recommended SRJ range
+  mass_range: [0, .inf]       # SRJ.
+
+  # abs eta cut
+  eta_min: 3.2
+  eta_max: 4.5
+
+  min_splits: 3              # Minimum number of split nodes
+
+  # --------------------------------------------------------------
+  # histogram files (unused for SRJ reweight)
+  # We shall reweight at training stage, so leave empty
+  # --------------------------------------------------------------
+  pt_hist_files_bkg:
+    dir_path: ""
+    files: {}
+  pt_hist_files_signal: {}

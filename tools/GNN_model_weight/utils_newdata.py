@@ -699,6 +699,481 @@ def create_train_dataset_fulld_new_Ntrk_pt_weight_file(
     return graphs
 
 
+def srj_create_train_dataset_fulld_new_Ntrk_pt_file(
+    graphs: list[Data],
+    z, k, d, edge1, edge2, label, dsids, Ntracks, jet_pts, jet_ms, jet_etas,
+    kT_selection: Union[float, None],
+    primary_Lund_only_one_arr: list,
+    passed_selection: list[bool],
+    signal_jet_truth_labels: list[int],
+    signal_dsids: list[int],
+    pt_range: tuple = (20, 3200),
+    mass_range: tuple = (0, float('inf')),
+    eta_min: float = 0.0,
+    eta_max: float = 2.0,
+    min_splits: int = 3,
+    include_pt: bool = False,
+) -> list[Data]:
+    """
+    Create a list of graphs for tagging.
+
+    Args:
+        graphs (list[Data]): List to which the generated torch_geometric.data.Data objects will be appended.
+        z (array): 2D array, with an array of z values for each jet.
+        k (array): 2D array, with an array of kT values for each jet.
+        d (array): 2D array, with an array of ΔR values for each jet.
+        edge1 (array): Array of edge1 values.
+        edge2 (array): Array of edge2 values.
+        label (array): Array of jet truth labels (1,2,3,4,5 quarks, -1,21 gluons).
+        dsids (array): Array of DSIDs for the jets.
+        Ntracks (array): Array of Ntracks values.
+        jet_pts (array): Array of jet pT values.
+        jet_ms (array): Array of jet mass values.
+        jet_etas (array): Array of jet pseudorapidity values.
+        kT_selection (float | None): kT selection threshold.
+        primary_Lund_only_one_arr (list): List to keep track of how many jets have only 1 splitting.
+        passed_selection (list): List to keep track of jets that passed the selection criteria.
+        signal_jet_truth_labels (list[int]): List of jet truth labels that are treated as signal (e.g., [1] for top, [2] for W).
+        signal_dsid (int): List of DSIDs that signal jets are taken from.
+        pt_range (tuple): Minimum and maximum jet pT values for selected jets, in GeV.
+        mass_range (tuple): Minimum and maximum jet mass values for selected jets, in GeV.
+        eta_max (float): Maximum absolute value of jet pseudorapidity, for selected jets.
+        min_splits (int): Minimum number of splittings, or emissions, for a jet to be selected.
+        include_pt (bool): Whether to include pT as a graph attribute.
+
+    Returns:
+        list[Data]: List of torch_geometric.data.Data objects.
+    """
+    buildID_from_graphs = 0
+    Primary_Lund_Plane = 0
+    extra_node = 0
+
+    # loop over jets
+    for i in trange(len(z), miniters=len(z) // 10, maxinterval=60*60*2, desc="Processing jets, printing at min. 10% intervals or every 2 hours"):
+        '''
+        label_np = ak.to_numpy(label[i])
+        jet_pts_np = ak.to_numpy(jet_pts[i])
+        jet_ms_np = ak.to_numpy(jet_ms[i])
+        label_np = label_np.astype(float)
+        jet_pts_np = jet_pts_np.astype(float)
+        jet_ms_np = jet_ms_np.astype(float)
+        '''
+
+        # skip jets with mass, pT or eta outside the specified ranges
+        # or with less than the specified number of splittings
+        if (not (pt_range[0] < jet_pts[i] < pt_range[1])
+            or not (mass_range[0] < jet_ms[i] < mass_range[1])
+            or not (eta_min < abs(jet_etas[i]) < eta_max)
+            or len(z[i]) < min_splits
+        ):
+            passed_selection.append(False)
+            continue
+        else:
+            passed_selection.append(True)  # changed to False later for some conditions
+
+        if label[i] in [1,2,3,4,5]:
+            label_out = 1   # signal
+        elif label[i] in [-1,21]:
+            label_out = 0   # background
+        else:
+            continue
+
+        # convert LJP variables to appropriate format
+        z_out = ak.to_numpy(z[i])
+        k_out = ak.to_numpy(k[i])
+        d_out = ak.to_numpy(d[i])
+        
+        z_out += 1e-4 
+        k_out += 1e-4 
+        d_out += 1e-4 
+        
+        z_out = np.log(1/z_out)
+        k_out = np.log(k_out)
+        d_out = np.log(1/d_out)
+        
+        
+        ## lets go to do kt cut; to do this first we need to recover parentID1 and parentID2 (the ones that have a lot of -1) 
+        if buildID_from_graphs==1:
+            edges1 = ak.to_numpy(edge1[i]) ## it's not necesary edge2[i], it has the same information
+            #print(len(edges1)/2)
+            len_edges = int(len(edges1)/2)
+            edges_A = edges1[:len_edges] # sons
+            edges_B = edges1[len_edges:] # parents ; then edges_B[i] > edges_A[i]
+            '''
+            for x in range(len(edges1)):
+                print(edges1[x])
+            '''
+            id1_id2_edge = 0
+            '''
+            print("edges_A len()->",len(edges_A))
+            print("edges_B len()->",len(edges_B))
+            print("edges_A",edges_A)
+            print("edges_B",edges_B)
+            '''
+            for j in range(0,len(edges_A)):
+                if j == len(edges_A)-1:
+                    id1_id2_edge = j + 1
+                    break
+                if edges_A[j+1] < edges_A[j]:
+                    id1_id2_edge = j + 1
+                    break
+            
+            edges_A_1 = edges_A[id1_id2_edge:] 
+            edges_A_2 = edges_A[:id1_id2_edge] 
+            edges_B_1 = edges_B[id1_id2_edge:] 
+            edges_B_2 = edges_B[:id1_id2_edge]
+            '''
+            print("edges_A_1",edges_A_1)
+            print("edges_A_2",edges_A_2)
+            print("edges_B_1",edges_B_1)
+            print("edges_B_2",edges_B_2)
+            '''
+            ## it's time to recover parentID1 (using edges_A_1 and edges_B_1) and parentID2
+            parentID1 = []
+            parentID2 = []
+            for j in range (0,len(z[i]) ):
+                if len(edges_B_1) == 0:
+                    parentID1.append(-1)
+                elif j == edges_A_1[0]:
+                    parentID1.append(edges_B_1[0])
+                    edges_A_1 = np.delete(edges_A_1,0)
+                    edges_B_1 = np.delete(edges_B_1,0)
+                else:
+                    parentID1.append(-1)
+                    
+                if len(edges_B_2) == 0:
+                    parentID2.append(-1)
+                elif j == edges_A_2[0]:
+                    parentID2.append(edges_B_2[0])
+                    edges_A_2 = np.delete(edges_A_2,0)
+                    edges_B_2 = np.delete(edges_B_2,0)
+                else:
+                    parentID2.append(-1)
+            
+            ## Now using parentID1 and parentID1 let's go and do kT cut 
+            ## I found both parentID because I think in this way code run faster, I don't want to do 
+            ## extra loops or complex functions in a data sample with millions of graphs
+            ### previous steps can be deleted if we take parentID1 and parentID2 from previous code
+            #print("ID1   :",parentID1)
+            #print("ID2   :",parentID2)
+    
+            
+            ## here ID2 is the HARDEST branch!!
+
+            # this fix should be not necessary anymore
+            for j in range(0, len(parentID1)):
+                if parentID1[j] == j :
+                    #print("warning!")
+                    parentID1[j] = -1
+                if parentID2[j] == j :
+                    #print("warning!")
+                    parentID2[j] = -1
+                    
+        ## I just don't want to change some lines, this mix between 1 and 2 should be remove in next version
+        if buildID_from_graphs != 1:
+            parentID1 = ak.to_numpy(edge2[i]) #edge2
+            parentID2 = ak.to_numpy(edge1[i]) #edge1
+        
+        # python3 weight_class_train-Copy1.py configs/config_class_train_top.yaml        
+        index_count = []
+        selected_nodes = []
+        index_count_out = []
+        kT_Cut = kT_selection if kT_selection is not None else -np.inf # 0.0 , 0.4 0.9, 2, 2.8 
+        nodes_pass_KT = []
+        node_kt_step = 0 ## used to renamed edges properly ()
+        node_index = 0
+        prev_cur_index = 0
+
+        '''
+        if i!=1061:
+            continue
+        print("i",i)
+        print("edges_A",edges_A)
+        print("edges_B",edges_B)
+        print("parentID1",parentID1)
+        print("parentID2",parentID2)
+        print("k_out[0]",k_out[0])
+        '''
+        
+        nodes_selected = []
+        if Primary_Lund_Plane == 1:
+            #print("ONLY PRIMARY LUND WILL BE USED!")
+            nodes_primary_count = 0
+            for j in range(0 , len(z[i])):
+                if nodes_primary_count==0:  #j == 0 :
+                    #j_ID1_next = parentID1[j]
+                    j_ID1_next = parentID2[j]
+                #selected_nodes = []
+                #if k_out[j] <= kT_Cut : 
+                if (k_out[j] <= kT_Cut): #  or j==0 or (j in parentID1) : 
+                    node_kt_step += 1
+                    nodes_pass_KT.append( int(node_kt_step) ) 
+                    nodes_selected.append(False)
+                    continue
+                if nodes_primary_count>0 and j != j_ID1_next: # j>0
+                    #print("222222")
+                    node_kt_step += 1
+                    nodes_pass_KT.append( int(node_kt_step) ) 
+                    nodes_selected.append(False)
+                    continue
+                nodes_selected.append(True)
+                nodes_primary_count +=1;
+                #j_ID1_next = parentID1[j]
+                j_ID1_next = parentID2[j]
+                index_count.append(j)
+                nodes_pass_KT.append( int(node_kt_step) ) 
+                while len(index_count) > 0:
+                    cur_index = index_count[-1]
+                    prev_cur_index = cur_index
+                    #index_1 = parentID1[cur_index]
+                    index_2 = parentID2[cur_index]
+                    index_count.pop()
+                    '''
+                    if len(graphs)==520:
+                        #print("k_out[0]:", k_out[0], "  k_out[1]:", k_out[1])
+                        print("cur_index:", cur_index)
+                        print("index_1:", index_1, "kt(index_1)", k_out[index_1])
+                        print("index_2:", index_2, "kt(index_2)", k_out[index_2])
+                    '''
+                    '''
+                    if index_1 != -1:
+                        if k_out[index_1] > kT_Cut:
+                            selected_nodes.append( int(index_1) )
+                            index_count_out.append( int(j))
+                            node_index += 1
+                            #if len(graphs)==520:
+                            #    print("len(selected_nodes)inside  1:", len(selected_nodes))
+                            #    print("len(index_count_out)inside 1:", len(index_count_out))
+                        else:
+                            index_count.append(index_1)
+                    '''
+                    if index_2 != -1:
+                        if k_out[index_2] > kT_Cut:
+                            selected_nodes.append( int(index_2) )
+                            index_count_out.append( int(j))
+                            node_index += 1                             
+                        else:
+                            index_count.append(index_2)
+                    #'''
+        ######################################################################################
+        else:
+            for j in range(0 , len(z[i])):
+                #index_count.append(j) # this line here is an error!
+                #selected_nodes = []
+                if k_out[j] <= kT_Cut : 
+                    node_kt_step += 1
+                    nodes_pass_KT.append( int(node_kt_step) ) 
+                    continue
+                index_count.append(j)
+                nodes_pass_KT.append( int(node_kt_step) ) 
+                while len(index_count) > 0:
+                    cur_index = index_count[-1]
+                    prev_cur_index = cur_index
+                    index_1 = parentID1[cur_index]
+                    index_2 = parentID2[cur_index]
+                    index_count.pop()
+    
+                    '''
+                    if len(graphs)==520:
+                        #print("k_out[0]:", k_out[0], "  k_out[1]:", k_out[1])
+                        print("cur_index:", cur_index)
+                        print("index_1:", index_1, "kt(index_1)", k_out[index_1])
+                        print("index_2:", index_2, "kt(index_2)", k_out[index_2])
+                    '''
+                    if index_1 != -1:
+                        if k_out[index_1] > kT_Cut:
+                            selected_nodes.append( int(index_1) )
+                            index_count_out.append( int(j))
+                            node_index += 1
+                            '''
+                            if len(graphs)==520:
+                                print("len(selected_nodes)inside  1:", len(selected_nodes))
+                                print("len(index_count_out)inside 1:", len(index_count_out))
+                            '''
+                        else:
+                            index_count.append(index_1)
+                    if index_2 != -1:
+                        if k_out[index_2] > kT_Cut:
+                            selected_nodes.append( int(index_2) )
+                            index_count_out.append( int(j))
+                            node_index += 1 
+                            '''
+                            if len(graphs)==520:
+                                print("len(selected_nodes)inside  2:", len(selected_nodes))
+                                print("len(index_count_out)inside 2:", len(index_count_out))
+                            '''
+                        else:
+                            index_count.append(index_2)
+        
+        ##transform edges numeration and avoid isolated nodes 
+        '''
+        print("nodes before kT slection: ", len(k_out) )
+        print("nodes after kT slection: ", len(k_out[k_out > kT_Cut]) )
+        print("len(index_count_out)",len(index_count_out))
+        print("len(selected_nodes)",len(selected_nodes))
+        #print("len(nodes_pass_KT)",len(nodes_pass_KT))
+        '''
+        if len(k_out[k_out > kT_Cut]) < 1:
+            passed_selection[i] = False
+            continue
+        
+        #print("index_count_out  :",index_count_out)
+        #print("selected_nodes   :",selected_nodes)
+
+        for j in range(0,len(index_count_out)):
+            ## 1+ in order to add an extra node
+            if extra_node==1:
+                index_count_out[j] = int(1 + index_count_out[j] - nodes_pass_KT[index_count_out[j]] )
+                selected_nodes[j] = int(1 + selected_nodes[j] - nodes_pass_KT[selected_nodes[j]] )
+            else:
+                index_count_out[j] = int( index_count_out[j] - nodes_pass_KT[index_count_out[j]] )
+                selected_nodes[j] = int( selected_nodes[j] - nodes_pass_KT[selected_nodes[j]] )
+        if extra_node==1:
+            index_count_out.insert(0,0)
+            selected_nodes.insert(0,1)
+        
+        
+        #print("index_count_out Af:",index_count_out)
+        #print("selected_nodes Af:",selected_nodes)
+        #if i > 264:
+        #    break
+        #print(len(j))
+            
+        index_count_out = np.array(index_count_out, dtype=int )
+        selected_nodes = np.array(selected_nodes, dtype=int)
+        #index_count_out = index_count_out.astype(int)
+        #selected_nodes = selected_nodes.astype(int)
+        
+        #print("1", selected_nodes)
+        #print("1.5", selected_nodes[1])
+        #print("2", type(selected_nodes[1]) )
+
+        ## kt mask for feature
+        if Primary_Lund_Plane==1:
+            k_mask = np.array(nodes_selected)
+        if Primary_Lund_Plane==0:
+            k_mask = k_out > kT_Cut
+        z_out = z_out[k_mask]
+        k_out = k_out[k_mask]
+        d_out = d_out[k_mask]
+        
+        Ntrk = Ntracks[i]
+
+        #print("3", z_out)
+        #print("3.5", z_out[1])
+        #print("4", type(z_out[1]) )
+
+        z_out = z_out.astype(float)
+        k_out = k_out.astype(float)
+        d_out = d_out.astype(float)
+
+        #edge = torch.tensor(np.array([edge1[i], edge2[i]]) , dtype=torch.long)
+        edge_ID1 = np.concatenate((index_count_out, selected_nodes))
+        edge_ID2 = np.concatenate((selected_nodes, index_count_out))
+        edge = torch.tensor(np.array([edge_ID1, edge_ID2]) , dtype=torch.int64)
+        #edge = np.array([edge_ID1, edge_ID2]).astype(int)
+        
+
+        vec = []
+        ## in order to add an extra node
+        if extra_node==1:
+            #print(index_count_out)
+            #print(d_out)
+            d_out = np.append(0, d_out)
+            z_out = np.append(0, z_out)
+            k_out = np.append(0, k_out)
+
+        vec.append(np.array([d_out, z_out, k_out]).T)
+        vec = np.array(vec)
+        vec = np.squeeze(vec)
+        vec=torch.tensor(vec, dtype=torch.float).detach()
+
+        graph_size = 1
+        if len(k_out) == 1:
+            primary_Lund_only_one_arr.append(1)
+            #continue
+            #edge = torch.tensor([[0,0], [0,0]], dtype=torch.int64)
+            #edge = torch.tensor([[0], [0]], dtype=torch.int64)
+            edge = torch.tensor([[], []], dtype=torch.int64)
+            vec = torch.unsqueeze(vec, dim=0)
+            graph_size = 0
+
+        '''
+        if len(k_out) == 2 and len(graphs)==520:
+            print("graph number:", len(graphs))
+            print("ID1_f:",parentID1)
+            print("ID2_f:",parentID2)
+            print("edge_index", edge)
+        '''
+
+        #print("5", edge)
+        #print("5.3", edge[0,1])
+        #print("5.8", edge[0].dtype )
+        #print("6", edge[0,1].dtype )
+
+        #print("weights", weight[i])
+        #print("weights type:", type(weight[i]) )
+        #print("pt", jet_pts[i])
+        #print("mass", jet_ms[i])
+        #print("mass type:", type(jet_ms[i]) ) # <class 'numpy.float64'>
+
+        
+        if len(edge_ID1)<1:
+            primary_Lund_only_one_arr.append(1)
+            #print("k_out",k_out , "  edge_ID1:", edge_ID1)
+            passed_selection[i] = False
+            continue
+            #print("x",vec)
+            #print("edge",edge)
+        
+        #print("edge",edge)
+        #print("edge1",edge[0])
+        #print("edge2",edge[1])
+
+        graph = Data(
+            x = vec.detach(),
+            #edge_index = torch.tensor(edge, dtype=torch.int64).detach(),
+            edge_index = edge.detach(),
+            Ntrk = torch.tensor(Ntrk, dtype=torch.float).detach(),
+            #graph_size = torch.tensor(graph_size, dtype=torch.float).detach(),
+            mass =  float(jet_ms[i]), #torch.tensor(jet_ms[i], dtype=torch.float).detach(),
+            y = float(label_out), #torch.tensor(label_out, dtype=torch.float).detach() ))
+        )
+        graph["eta"] = float(jet_etas[i])
+        if include_pt:
+            graph["pt"] = float(jet_pts[i]) #torch.tensor(jet_pts[i] , dtype=torch.float).detach()
+
+        graphs.append(graph)
+        '''
+        graphs.append(Data(x=torch.tensor(vec, dtype=torch.float).detach(),
+                           edge_index = torch.tensor(edge, dtype=torch.int64).detach(),
+                           #Ntrk=torch.tensor(Ntracks[i], dtype=torch.int).detach(),
+                           Ntrk=torch.tensor(Ntrk, dtype=torch.float).detach(),
+                           weights =torch.tensor(weight[i], dtype=torch.float).detach(),
+                           pt=torch.tensor(jet_pts[i], dtype=torch.float).detach(),
+                           mass=torch.tensor(jet_ms[i], dtype=torch.float).detach(),
+                           y=torch.tensor(label_out, dtype=torch.float).detach() ))
+        '''
+        #print(graphs[-1])
+        #print(graphs[-1].x)
+        #print(graphs[-1].edge_index)
+        '''
+        if len(k_out) == 1:
+            print("1111111111")
+            print(graphs[-1])
+        if len(k_out) == 2 and len(graphs)%2==0 :
+            print("2222222222")
+            print(graphs[-1])
+        '''
+
+    print("all_graphs_count_graphs:", len(graphs))
+    print("primary_Lund_only_one:", np.sum(primary_Lund_only_one_arr))
+    print("percent_graphs:", 1 - np.sum(primary_Lund_only_one_arr) / len(graphs) )
+        
+    return graphs
+
+
+
 def train(loader, model, device, optimizer):
     print ("dataset size:",len(loader.dataset))
     model.train()
@@ -1046,4 +1521,3 @@ def JSD (P, Q, base=2):
     q = Q / np.sum(Q)
     m = 0.5 * (p + q)
     return 0.5 * (entropy(p, m, base=base) + entropy(q, m, base=base))
-
