@@ -1,0 +1,72 @@
+# ============================================================
+# Data
+# ============================================================
+data:
+  root_dir: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/scores/hollistic_scoring/160_1300_pt_0_1.2_2%train_1%test"
+  root_pattern: "*.root"
+  tree_name: "FlatSubstructureJetTree"
+  label_branch: "labels"
+  score_branches:
+    - "fjet_LundNet_SRJ_eta0_1.2_pt160_1300_2%_batch4500_lr0.0004_e17_score"
+    - "parT_score"
+
+
+# ============================================================
+# Kinematic features (loaded from ROOT, z-score normalised at training time)
+# Set to [] to disable and fall back to scores-only mode.
+# ============================================================
+kinematics:
+  branches:
+    - "fjet_pt"
+    - "fjet_m"
+    - "fjet_eta"
+
+
+# ============================================================
+# Model
+# ============================================================
+model:
+  name: "CombinerV2"
+  hidden_dims: [64, 32, 16]   # widths of the three hidden layers
+  dropout: 0.2                # dropout probability applied after each hidden layer
+  n_kinematics: 3             # must match len(kinematics.branches)
+
+
+# ============================================================
+# Training
+# ============================================================
+training:
+  n_epochs: 200
+  batch_size: 4096
+  learning_rate: 0.001
+  weight_decay: 1.0e-4
+
+  # ReduceLROnPlateau: halve lr when val_loss stalls for `patience` epochs
+  lr_scheduler:
+    type: "plateau"       # "plateau" or "cosine"
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
+
+  # Stop training if val_loss does not improve for this many epochs
+  early_stopping_patience: 20
+
+  validation_fraction: 0.1
+
+
+# ============================================================
+# Output
+# ============================================================
+output:
+  path_to_save: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/COMBINED/combinerV2_kin_160_1300_pt_0_1.2_eta_2%train_1%test"
+  checkpoint_prefix: "CombinerV2kin_LundNet_ParT_eta0_1.2_pt160_1300"
+  save_every_epoch: false   # only save best checkpoint mid-run; final epoch always saved
+  val_loss_filename: "validation_losses.txt"
+
+
+# ============================================================
+# Computing resources
+# ============================================================
+gpu: null
+num_workers: 4
+seed: 42

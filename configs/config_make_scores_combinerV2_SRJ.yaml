@@ -1,0 +1,45 @@
+# ============================================================
+# Data and output paths
+# ============================================================
+data:
+  paths_to_test_file_root: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/data_160_1300GeV_0_1.2_eta/part0_1percent/data_dijet_ParT_batch*_ln_kT_cut_None.root"
+  paths_to_test_file_graphs: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/preprocessed_data/160_1300_pt_0_1.2_eta_2%_train_1%_test/test/processed_graphs_dijet_ParT_batch*_ln_kT_cut_None_with_pt"
+
+  path_to_outdir: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/scores/Combined_scoring/combinerV2_kin_160_1300_pt_0_1.2_2%train_1%test"
+
+  output_suffix: "_score_CombinedV2kin"
+  sample: "ParT_LundNet_combinedV2kin_1%_test_central_highpt"
+  kT_cut: null
+  tree_name: "FlatSubstructureJetTree"
+
+
+# ============================================================
+# Model evaluation settings
+# ============================================================
+test:
+  lundnet_model:
+    tag: "LundNet_SRJ_eta0_1.2_pt160_1300_2%_batch4500_lr0.0004_e17"
+    arch: "LundNet"
+    ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/160_1300_pt_0_1.2_eta_2%_train_1%_test/LundNet_SRJ_eta12_pt1600_1300_e017_0.39608.pt"
+
+  combiner_model:
+    name: "CombinerV2"
+    hidden_dims: [64, 32, 16]
+    dropout: 0.2
+    n_kinematics: 3
+    kinematic_branches:
+      - "fjet_pt"
+      - "fjet_m"
+      - "fjet_eta"
+    tag: "CombinedV2kin_LundNet_ParT_eta0_1.2_pt160_1300"
+    # Update ckpt after training completes
+    ckpt: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/COMBINED/combinerV2_kin_160_1300_pt_0_1.2_eta_2%train_1%test/CombinerV2kin_LundNet_ParT_eta0_1.2_pt160_1300_20260401_233537/CombinerV2kin_LundNet_ParT_eta0_1.2_pt160_1300_best.pt"
+    # Normalisation stats saved alongside the checkpoint during training
+    kin_normalisation: "/home/xzcqsfhu/lundtoptagger/qg_analysis_data/jet2m_ParT/model_training/COMBINED/combinerV2_kin_160_1300_pt_0_1.2_eta_2%train_1%test/CombinerV2kin_LundNet_ParT_eta0_1.2_pt160_1300_20260401_233537/kin_normalisation.json"
+
+  # parT score branch is fixed in script as: parT_score
+
+  # ROOT branch names are generated from tags
+  scores_branch_name: "fjet_{tag}_score"
+
+  batch_size: 2048

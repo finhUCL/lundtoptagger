@@ -49,6 +49,6 @@ echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 
 echo ""
 echo "===> Starting SRJ combiner training..."
-python weight_ONLY_TRAINS_COMBINER_SRJ.py configs/config_ONLY_TRAIN_COMBINER_SRJ.yaml
+python weight_ONLY_TRAINS_COMBINER_SRJ.py configs/config_ONLY_TRAIN_COMBINER_V2_SRJ.yaml
 
 echo "===> Job finished."

@@ -45,7 +45,7 @@ echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 #  Run combined scoring
 # ------------------------------------------------------------
 
-CONFIG_FILE="configs/config_make_scores_combiner_SRJ.yaml"
+CONFIG_FILE="configs/config_make_scores_combinerV2_SRJ.yaml"
 
 echo ""
 echo "===> Starting SRJ combined scoring..."

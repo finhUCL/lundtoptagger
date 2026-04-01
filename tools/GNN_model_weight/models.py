@@ -130,6 +130,79 @@ class Combiner(torch.nn.Module):
         x = torch.sigmoid(self.output(x))
         return x
 
+
+class CombinerV2(torch.nn.Module):
+    """
+    Improved score combiner.
+
+    Expands the two input scores into 7 features before the MLP:
+      s1, s2                   -- raw scores
+      logit(s1), logit(s2)     -- log-odds; combining classifiers is additive in
+                                  this space, so it lets the network express the
+                                  theoretically optimal linear combination easily
+      s1 * s2                  -- multiplicative interaction
+      s1 - s2                  -- signed disagreement
+      s1 + s2                  -- agreement / effective sum
+
+    Optionally appends n_kinematics extra features (e.g. mass) after the score features,
+    so the network can learn pT/mass/eta-dependent combination weights.
+
+    Input tensor shape: [N, 2 + n_kinematics]
+      columns 0-1  : LundNet score, ParT score
+      columns 2+   : kinematic features (z-score normalised)
+
+    Then a 3-layer MLP (configurable width) with BatchNorm + ReLU + Dropout
+    between hidden layers.  The final layer is a plain linear → sigmoid.
+    """
+
+    def __init__(self, hidden_dims=(64, 32, 16), dropout=0.2, n_kinematics=0):
+        super(CombinerV2, self).__init__()
+        self.n_kinematics = n_kinematics
+
+        n_in = 7 + n_kinematics
+        dims = [n_in] + list(hidden_dims)
+
+        layers = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout))
+        self.body = nn.Sequential(*layers)
+        self.head = nn.Linear(dims[-1], 1)
+
+    @staticmethod
+    def _expand_score_features(scores):
+        eps = 1e-6
+        s1 = scores[:, 0:1]
+        s2 = scores[:, 1:2]
+        logit_s1 = torch.log(s1.clamp(eps, 1.0 - eps) / (1.0 - s1.clamp(eps, 1.0 - eps)))
+        logit_s2 = torch.log(s2.clamp(eps, 1.0 - eps) / (1.0 - s2.clamp(eps, 1.0 - eps)))
+        return torch.cat([s1, s2, logit_s1, logit_s2, s1 * s2, s1 - s2, s1 + s2], dim=1)
+
+    def forward(self, score_a, score_b=None):
+        if score_b is None:
+            x = score_a
+            if x.dim() == 1:
+                x = x.unsqueeze(1)
+        else:
+            if score_a.dim() > 1:
+                score_a = score_a.squeeze(-1)
+            if score_b.dim() > 1:
+                score_b = score_b.squeeze(-1)
+            x = torch.stack((score_a, score_b), dim=1)
+
+        x = x.float()
+        score_feats = self._expand_score_features(x[:, :2])
+
+        if self.n_kinematics > 0 and x.shape[1] > 2:
+            x = torch.cat([score_feats, x[:, 2:]], dim=1)
+        else:
+            x = score_feats
+
+        x = self.body(x)
+        return torch.sigmoid(self.head(x))
+
 class LundNet(torch.nn.Module):
     def __init__(self):
         super(LundNet, self).__init__()

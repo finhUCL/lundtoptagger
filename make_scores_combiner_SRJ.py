@@ -1,6 +1,7 @@
 import argparse
 import gc
 import glob
+import json
 import os
 import time
 
@@ -13,10 +14,20 @@ from tools.GNN_model_weight.models import *
 from tools.GNN_model_weight.utils_newdata import load_yaml, get_scores
 from tools.utils_config import recursive_update, parse_dot_args
 
-try:
-    from tools.GNN_model_weight.models import Combiner as CombinerModel
-except ImportError:
-    from tools.GNN_model_weight.models import combiner as CombinerModel
+from tools.GNN_model_weight.models import Combiner, CombinerV2
+
+
+def build_combiner_by_name(name, model_cfg=None):
+    if model_cfg is None:
+        model_cfg = {}
+    if name == "Combiner":
+        return Combiner()
+    if name == "CombinerV2":
+        hidden_dims = tuple(model_cfg.get("hidden_dims", [64, 32, 16]))
+        dropout = float(model_cfg.get("dropout", 0.2))
+        n_kinematics = int(model_cfg.get("n_kinematics", 0))
+        return CombinerV2(hidden_dims=hidden_dims, dropout=dropout, n_kinematics=n_kinematics)
+    raise ValueError(f"Unknown combiner model name: '{name}'. Choose 'Combiner' or 'CombinerV2'.")
 
 
 PART_SCORE_BRANCH = "parT_score"
@@ -134,11 +145,24 @@ def main():
     lund_model.to(device)
     lund_model.eval()
 
-    print("Loading Combiner checkpoint...")
-    combiner_model = CombinerModel()
+    combiner_name = config["test"]["combiner_model"].get("name", "Combiner")
+    combiner_model_cfg = config["test"]["combiner_model"]
+    print(f"Loading {combiner_name} checkpoint...")
+    combiner_model = build_combiner_by_name(combiner_name, combiner_model_cfg)
     combiner_model.load_state_dict(torch.load(combiner_ckpt, map_location=device))
     combiner_model.to(device)
     combiner_model.eval()
+
+    # Load kinematic normalisation stats if provided
+    kin_norm_path = combiner_model_cfg.get("kin_normalisation", None)
+    kinematic_branches = combiner_model_cfg.get("kinematic_branches", [])
+    kin_mean = kin_std = None
+    if kin_norm_path:
+        with open(kin_norm_path, "r", encoding="utf-8") as f_norm:
+            norm_stats = json.load(f_norm)
+        kin_mean = np.array(norm_stats["mean"], dtype=np.float32)
+        kin_std  = np.array(norm_stats["std"],  dtype=np.float32)
+        print(f"Loaded kinematic normalisation for: {norm_stats['kinematic_branches']}")
 
     print(f"LundNet score branch: {lund_score_branch}")
     print(f"Combined score branch: {combined_score_branch}")
@@ -177,7 +201,19 @@ def main():
                 f"Branch '{PART_SCORE_BRANCH}' has {part_scores.shape[0]} entries, expected {n_jets}."
             )
 
-        features = torch.from_numpy(np.stack((lund_scores, part_scores), axis=1)).to(device)
+        feature_cols = [lund_scores, part_scores]
+        if kinematic_branches:
+            for branch in kinematic_branches:
+                if branch not in arrays.fields:
+                    raise KeyError(f"Kinematic branch '{branch}' not found in ROOT file {fr}")
+                feature_cols.append(np.asarray(arrays[branch]).reshape(-1).astype(np.float32))
+
+        feature_arr = np.stack(feature_cols, axis=1)
+
+        if kin_mean is not None:
+            feature_arr[:, 2:] = (feature_arr[:, 2:] - kin_mean) / kin_std
+
+        features = torch.from_numpy(feature_arr).to(device)
         with torch.no_grad():
             combined_scores = combiner_model(features).cpu().numpy().reshape(-1).astype(np.float32)
 
